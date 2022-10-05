@@ -1,16 +1,24 @@
 """Async API client to interact with the Solana JSON RPC Endpoint."""  # pylint: disable=too-many-lines
 import asyncio
 from time import time
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union, Sequence
+from solders.signature import Signature
 
 from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
+from solana.message import Message
 from solana.publickey import PublicKey
 from solana.rpc import types
 from solana.transaction import Transaction
 
 from .commitment import COMMITMENT_RANKS, Commitment, Finalized
-from .core import RPCException, UnconfirmedTxError, _ClientCore
+from .core import (
+    RPCException,
+    TransactionExpiredBlockheightExceededError,
+    TransactionUncompiledError,
+    UnconfirmedTxError,
+    _ClientCore,
+)
 from .providers import async_http
 
 
@@ -37,6 +45,7 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             If you want something tailored to your use case, run your own loop that fetches the recent blockhash,
             and pass that value in your `.send_transaction` calls.
         timeout: HTTP request timeout in seconds.
+        extra_headers: Extra headers to pass for HTTP request.
     """
 
     def __init__(
@@ -45,10 +54,11 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
         commitment: Optional[Commitment] = None,
         blockhash_cache: Union[BlockhashCache, bool] = False,
         timeout: float = 10,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> None:
         """Init API client."""
         super().__init__(commitment, blockhash_cache)
-        self._provider = async_http.AsyncHTTPProvider(endpoint, timeout=timeout)
+        self._provider = async_http.AsyncHTTPProvider(endpoint, timeout=timeout, extra_headers=extra_headers)
 
     async def __aenter__(self) -> "AsyncClient":
         """Use as a context manager."""
@@ -86,9 +96,7 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
         """
         return await self._provider.is_connected()
 
-    async def get_balance(
-        self, pubkey: Union[PublicKey, str], commitment: Optional[Commitment] = None
-    ) -> types.RPCResponse:
+    async def get_balance(self, pubkey: PublicKey, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the balance of the account of provided Pubkey.
 
         Args:
@@ -101,12 +109,12 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_balance(PublicKey(1))) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': {'context': {'slot': 228}, 'value': 0}, 'id': 1}
         """
-        args = self._get_balance_args(pubkey, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_balance_body(pubkey, commitment)
+        return await self._provider.make_request(body)
 
     async def get_account_info(
         self,
-        pubkey: Union[PublicKey, str],
+        pubkey: PublicKey,
         commitment: Optional[Commitment] = None,
         encoding: str = "base64",
         data_slice: Optional[types.DataSliceOpts] = None,
@@ -141,10 +149,10 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                'rentEpoch': 90}},
              'id': 1}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_account_info_args(
-            pubkey=pubkey, commitment=commitment, encoding=encoding, data_slice=data_slice, min_context_slot=None
+        body = self._get_account_info_body(
+            pubkey=pubkey, commitment=commitment, encoding=encoding, data_slice=data_slice
         )
-        return await self._provider.make_request(*args)
+        return await self._provider.make_request(body)
 
     async def get_block_commitment(self, slot: int) -> types.RPCResponse:
         """Fetch the commitment for particular block.
@@ -191,8 +199,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
               'totalStake': 497717120},
               'id': 1}}
         """
-        args = self._get_block_commitment_args(slot)
-        return await self._provider.make_request(*args)
+        body = self._get_block_commitment_body(slot)
+        return await self._provider.make_request(body)
 
     async def get_block_time(self, slot: int) -> types.RPCResponse:
         """Fetch the estimated production time of a block.
@@ -205,8 +213,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_block_time(5)) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': 1598400007, 'id': 1}
         """
-        args = self._get_block_time_args(slot)
-        return await self._provider.make_request(*args)
+        body = self._get_block_time_body(slot)
+        return await self._provider.make_request(body)
 
     async def get_cluster_nodes(self) -> types.RPCResponse:
         """Returns information about all the nodes participating in the cluster.
@@ -224,7 +232,7 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
         """
         return await self._provider.make_request(self._get_cluster_nodes)
 
-    async def get_confirmed_block(
+    async def get_block(
         self,
         slot: int,
         encoding: str = "json",
@@ -238,7 +246,7 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
 
         Example:
             >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_confirmed_block(1)) # doctest: +SKIP
+            >>> asyncio.run(solana_client.get_block(1)) # doctest: +SKIP
             {'jsonrpc': '2.0',
              'result': {'blockTime': None,
               'blockhash': '39pJzWsPn59k2PuHqhB7xNYBNGFXcFVkXLertHPBV4Tj',
@@ -264,7 +272,7 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                   'recentBlockhash': 'EwF9gtehrrvPUoNticgmiEadAWzn4XeN8bNaNVBkS6S2'},
                  'signatures': ['63jnpMCs7TNnCjnTqUrX7Mvqc5CbJMtVkLxBjPHUQkjXyZrQuZpfhjvzA7A29D9tMqVaiQC3UNP1NeaZKFFHJyQE']}}]},
              'id': 9}
-            >>> asyncio.run(solana_client.get_confirmed_block(1, encoding="base64")) # doctest: +SKIP
+            >>> asyncio.run(solana_client.get_block(1, encoding="base64")) # doctest: +SKIP
             {'jsonrpc': '2.0',
              'result': {'blockTime': None,
               'blockhash': '39pJzWsPn59k2PuHqhB7xNYBNGFXcFVkXLertHPBV4Tj',
@@ -280,8 +288,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                  'base64']}]},
              'id': 10}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_confirmed_block_args(slot, encoding)
-        return await self._provider.make_request(*args)
+        body = self._get_block_body(slot, encoding)
+        return await self._provider.make_request(body)
 
     async def get_recent_performance_samples(self, limit: Optional[int] = None) -> types.RPCResponse:
         """Returns a list of recent performance samples, in reverse slot order.
@@ -323,67 +331,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             ],
             'id': 1}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_recent_performance_samples_args(limit)
-        return await self._provider.make_request(*args)
-
-    async def get_block(
-        self,
-        slot: int,
-        encoding: str = "json",
-    ) -> types.RPCResponse:
-        """Returns identity and transaction information about a confirmed block in the ledger.
-
-        Args:
-            slot: Slot, as u64 integer.
-            encoding: (optional) Encoding for the returned Transaction, either "json", "jsonParsed",
-                "base58" (slow), or "base64". If parameter not provided, the default encoding is JSON.
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_block(1)) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': {'blockTime': None, 'blockHeight': 0,
-              'blockhash': '39pJzWsPn59k2PuHqhB7xNYBNGFXcFVkXLertHPBV4Tj',
-              'parentSlot': 0,
-              'previousBlockhash': 'EwF9gtehrrvPUoNticgmiEadAWzn4XeN8bNaNVBkS6S2',
-              'rewards': [],
-              'transactions': [{'meta': {'err': None,
-                 'fee': 0,
-                 'postBalances': [500000000000, 26858640, 1, 1, 1],
-                 'preBalances': [500000000000, 26858640, 1, 1, 1],
-                 'status': {'Ok': None}},
-                'transaction': {'message': {'accountKeys': ['LjvEBM78ufAikBfxqtj4RNiAECUi7Xqtz9k3QM3DzPk',
-                   'EKAar3bMQUZvGSonq7vcPF2nPaCYowbnat44FPafW8Po',
-                   'SysvarS1otHashes111111111111111111111111111',
-                   'SysvarC1ock11111111111111111111111111111111',
-                   'Vote111111111111111111111111111111111111111'],
-                  'header': {'numReadonlySignedAccounts': 0,
-                   'numReadonlyUnsignedAccounts': 3,
-                   'numRequiredSignatures': 1},
-                  'instructions': [{'accounts': [1, 2, 3, 0],
-                    'data': '37u9WtQpcm6ULa3VmTgTKEBCtYMxq84mk82tRvKdFEwj3rALiptAzuMJ1yoVSFAMARMZYp7q',
-                    'programIdIndex': 4}],
-                  'recentBlockhash': 'EwF9gtehrrvPUoNticgmiEadAWzn4XeN8bNaNVBkS6S2'},
-                 'signatures': ['63jnpMCs7TNnCjnTqUrX7Mvqc5CbJMtVkLxBjPHUQkjXyZrQuZpfhjvzA7A29D9tMqVaiQC3UNP1NeaZKFFHJyQE']}}]},
-             'id': 9}
-            >>> asyncio.run(solana_client.get_block(1, encoding="base64")) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': {'blockTime': None, 'blockHeight': 0,
-              'blockhash': '39pJzWsPn59k2PuHqhB7xNYBNGFXcFVkXLertHPBV4Tj',
-              'parentSlot': 0,
-              'previousBlockhash': 'EwF9gtehrrvPUoNticgmiEadAWzn4XeN8bNaNVBkS6S2',
-              'rewards': [],
-              'transactions': [{'meta': {'err': None,
-                 'fee': 0,
-                 'postBalances': [500000000000, 26858640, 1, 1, 1],
-                 'preBalances': [500000000000, 26858640, 1, 1, 1],
-                 'status': {'Ok': None}},
-                'transaction': ['AfxyKHmHIjXWjkyHODGeAbVxmfQWPj1ydS9nF+ynJHo8I1vCPDp2P9Cj5aA6W1CAHEHCqY0B1FDKomCzRo3qrAsBAAMFBQ6QBWfhQF7rG02xhuEsmmrUtz3AUjBtJKkqaHPJEmvFzziDX0C0robPrl9RbOyXHoc9/Dxa0zoGL6cEjvCjLgan1RcZLwqvxvJl4/t3zHragsUp0L47E24tAFUgAAAABqfVFxjHdMkoVmOYaR1etoteuKObS21cc1VbIQAAAAAHYUgdNXR0u3xNdiTr072z2DVec9EQQ/wNo1OAAAAAAM8NSv7ISDPN9E9XNL9vX7h8LuJHWlopUcX39DxsDx23AQQEAQIDADUCAAAAAQAAAAAAAAAAAAAAAAAAAIWWp5Il3Kg312pzVk6Jt61iyFhTbtmkh/ORbj3JUQRbAA==',
-                 'base64']}]},
-             'id': 10}
-        """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_block_args(slot, encoding)
-        return await self._provider.make_request(*args)
+        body = self._get_recent_performance_samples_body(limit)
+        return await self._provider.make_request(body)
 
     async def get_block_height(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the current block height of the node.
@@ -396,23 +345,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_block_height()) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': 1233, 'id': 1}
         """
-        args = self._get_block_height_args(commitment)
-        return await self._provider.make_request(*args)
-
-    async def get_confirmed_blocks(self, start_slot: int, end_slot: Optional[int] = None) -> types.RPCResponse:
-        """Returns a list of confirmed blocks.
-
-        Args:
-            start_slot: Start slot, as u64 integer.
-            end_slot: (optional) End slot, as u64 integer.
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_confirmed_blocks(5, 10)) # doctest: +SKIP
-            {'jsonrpc': '2.0', 'result': [5, 6, 7, 8, 9, 10], 'id': 1}
-        """
-        args = self._get_confirmed_blocks_args(start_slot, end_slot)
-        return await self._provider.make_request(*args)
+        body = self._get_block_height_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_blocks(self, start_slot: int, end_slot: Optional[int] = None) -> types.RPCResponse:
         """Returns a list of confirmed blocks.
@@ -426,48 +360,14 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_blocks(5, 10)) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': [5, 6, 7, 8, 9, 10], 'id': 1}
         """
-        args = self._get_blocks_args(start_slot, end_slot)
-        return await self._provider.make_request(*args)
-
-    async def get_confirmed_signature_for_address2(
-        self,
-        account: Union[str, Keypair, PublicKey],
-        before: Optional[str] = None,
-        until: Optional[str] = None,
-        limit: Optional[int] = None,
-        commitment: Optional[Commitment] = None,
-    ) -> types.RPCResponse:
-        """Returns confirmed signatures for transactions involving an address.
-
-        Signatures are returned backwards in time from the provided signature or
-        most recent confirmed block.
-
-        Args:
-            account: Account to be queried.
-            before: (optional) Start searching backwards from this transaction signature.
-                If not provided the search starts from the top of the highest max confirmed block.
-            until: (optional) Search until this transaction signature, if found before limit reached.
-            limit: (optoinal) Maximum transaction signatures to return (between 1 and 1,000, default: 1,000).
-            commitment: (optional) Bank state to query. It can be either "finalized", "confirmed" or "processed".
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_confirmed_signature_for_address2("Vote111111111111111111111111111111111111111", limit=1)) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': [{'err': None,
-               'memo': None,
-               'signature': 'v1BK8XcaPBzAGd7TB1K53pMdi6TBGe5CLCgx8cmZ4Bj63ZNvA6ca2QaxFpBFdvmpoFQ51VorBjifkBGLTDhwpqN',
-               'slot': 4290}],
-             'id': 2}
-        """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_confirmed_signature_for_address2_args(account, before, until, limit, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_blocks_body(start_slot, end_slot)
+        return await self._provider.make_request(body)
 
     async def get_signatures_for_address(
         self,
-        account: Union[str, Keypair, PublicKey],
-        before: Optional[str] = None,
-        until: Optional[str] = None,
+        account: PublicKey,
+        before: Optional[Signature] = None,
+        until: Optional[Signature] = None,
         limit: Optional[int] = None,
         commitment: Optional[Commitment] = None,
     ) -> types.RPCResponse:
@@ -494,47 +394,11 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                'slot': 4290}],
              'id': 2}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_signatures_for_address_args(account, before, until, limit, commitment)
-        return await self._provider.make_request(*args)
-
-    async def get_confirmed_transaction(self, tx_sig: str, encoding: str = "json") -> types.RPCResponse:
-        """Returns transaction details for a confirmed transaction.
-
-        Args:
-            tx_sig: Transaction signature as base-58 encoded string N encoding attempts to use program-specific
-                instruction parsers to return more human-readable and explicit data in the
-                `transaction.message.instructions` list.
-            encoding: (optional) Encoding for the returned Transaction, either "json", "jsonParsed",
-                "base58" (slow), or "base64". If parameter not provided, the default encoding is JSON.
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_confirmed_transaction("3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy")) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': {'meta': {'err': None,
-               'fee': 5000,
-               'postBalances': [498449233720610510, 1000001001987940, 1],
-               'preBalances': [498449233721615510, 1000001000987940, 1],
-               'status': {'Ok': None}},
-              'slot': 1659335,
-              'transaction': {'message': {'accountKeys': ['9B5XszUGdMaxCZ7uSQhPzdks5ZQSmWxrmzCSvtJ6Ns6g',
-                 '2KW2XRd9kwqet15Aha2oK3tYvd3nWbTFH1MBiRAv1BE1',
-                 '11111111111111111111111111111111'],
-                'header': {'numReadonlySignedAccounts': 0,
-                 'numReadonlyUnsignedAccounts': 1,
-                 'numRequiredSignatures': 1},
-                'instructions': [{'accounts': [0, 1],
-                  'data': '3Bxs4Bc3VYuGVB19',
-                  'programIdIndex': 2}],
-                'recentBlockhash': 'FwcsKNptGtMLccXAA9YgnivVFK95mKzECLT1DNPi3SDr'},
-               'signatures': ['3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy']}},
-             'id': 4}
-        """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_confirmed_transaction_args(tx_sig, encoding)
-        return await self._provider.make_request(*args)
+        body = self._get_signatures_for_address_body(account, before, until, limit, commitment)
+        return await self._provider.make_request(body)
 
     async def get_transaction(
-        self, tx_sig: str, encoding: str = "json", commitment: Optional[Commitment] = None
+        self, tx_sig: Signature, encoding: str = "json", commitment: Optional[Commitment] = None
     ) -> types.RPCResponse:
         """Returns transaction details for a confirmed transaction.
 
@@ -569,8 +433,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                'signatures': ['3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy']}},
              'id': 4}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_transaction_args(tx_sig, encoding, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_transaction_body(tx_sig, encoding, commitment)
+        return await self._provider.make_request(body)
 
     async def get_epoch_info(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns information about the current epoch.
@@ -589,8 +453,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
               'slotsInEpoch': 8192},
              'id': 5}
         """
-        args = self._get_epoch_info_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_epoch_info_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_epoch_schedule(self) -> types.RPCResponse:
         """Returns epoch schedule information from this cluster's genesis config.
@@ -608,61 +472,30 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
         """
         return await self._provider.make_request(self._get_epoch_schedule)
 
-    async def get_fee_calculator_for_blockhash(
-        self, blockhash: Union[str, Blockhash], commitment: Optional[Commitment] = None
-    ) -> types.RPCResponse:
-        """Returns the fee calculator associated with the query blockhash, or null if the blockhash has expired.
+    async def get_fee_for_message(self, message: Message, commitment: Optional[Commitment] = None) -> types.RPCResponse:
+        """Returns the fee for a message.
 
         Args:
-            blockhash: Blockhash to query as a Base58 encoded string.
+            message: Message that the fee is requested for.
             commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
 
         Example:
+            >>> from solana.keypair import Keypair
+            >>> from solana.system_program import TransferParams, transfer
+            >>> from solana.transaction import Transaction
+            >>> sender, receiver = Keypair.from_seed(bytes(PublicKey(1))), Keypair.from_seed(bytes(PublicKey(2)))
+            >>> txn = Transaction().add(transfer(TransferParams(
+            ...     from_pubkey=sender.public_key, to_pubkey=receiver.public_key, lamports=1000)))
             >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_fee_calculator_for_blockhash("BaQSR194dC4dZaRxATtxYyEwDkk7VgqUY8NVNkub8HFZ")) # doctest: +SKIP
+            >>> asyncio.run(solana_client.get_fee_for_message(txn.compile_message())) # doctest: +SKIP
             {'jsonrpc': '2.0',
-             'result': {'context': {'slot': 7065},
-              'value': {'feeCalculator': {'lamportsPerSignature': 5000}}},
+             'result': { 'context': { 'slot': 5068 }, 'value': 5000 },
              'id': 4}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_fee_calculator_for_blockhash_args(blockhash, commitment)
-        return await self._provider.make_request(*args)
-
-    async def get_fee_rate_governor(self) -> types.RPCResponse:
-        """Return the fee rate governor information from the root bank.
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_fee_rate_governor()) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': {'context': {'slot': 7172},
-              'value': {'feeRateGovernor': {'burnPercent': 50,
-                'maxLamportsPerSignature': 100000,
-                'minLamportsPerSignature': 5000,
-                'targetLamportsPerSignature': 10000,
-                'targetSignaturesPerSlot': 20000}}},
-             'id': 5}
-        """
-        return await self._provider.make_request(self._get_fee_rate_governor)
-
-    async def get_fees(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
-        """Returns a recent block hash from the ledger, a fee schedule and the last slot the blockhash will be valid.
-
-        Args:
-            commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_fees()) # doctest: +SKIP
-            {'jsonrpc': '2.0',
-             'result': {'context': {'slot': 7727},
-              'value': {'blockhash': 'GGS6AEDqjF5irU6D6VQNherEZ2hckGaeBiVdfSZKg4gd',
-               'feeCalculator': {'lamportsPerSignature': 5000},
-               'lastValidSlot': 8027}},
-             'id': 1}
-        """
-        args = self._get_fees_args(commitment)
-        return await self._provider.make_request(*args)
+        if isinstance(message, Transaction):
+            raise TransactionUncompiledError("Transaction uncompiled, please compile to message first.")
+        body = self._get_fee_for_message_body(message, commitment)
+        return await self._provider.make_request(body)
 
     async def get_first_available_block(self) -> types.RPCResponse:
         """Returns the slot of the lowest confirmed block that has not been purged from the ledger.
@@ -715,8 +548,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
               'terminal': 0.015},
              'id': 5}
         """
-        args = self._get_inflation_governor_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_inflation_governor_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_inflation_rate(self) -> types.RPCResponse:
         """Returns the specific inflation values for the current epoch.
@@ -789,8 +622,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                 'lamports': 1940147018054560}]},
              'id': 2}
         """
-        args = self._get_largest_accounts_args(filter_opt, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_largest_accounts_body(filter_opt, commitment)
+        return await self._provider.make_request(body)
 
     async def get_leader_schedule(
         self, epoch: Optional[int] = None, commitment: Optional[Commitment] = None
@@ -815,8 +648,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                ...]},
              'id': 6}
         """
-        args = self._get_leader_schedule_args(epoch, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_leader_schedule_body(epoch, commitment)
+        return await self._provider.make_request(body)
 
     async def get_minimum_balance_for_rent_exemption(
         self, usize: int, commitment: Optional[Commitment] = None
@@ -832,12 +665,12 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_minimum_balance_for_rent_exemption(50)) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': 1238880, 'id': 7}
         """
-        args = self._get_minimum_balance_for_rent_exemption_args(usize, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_minimum_balance_for_rent_exemption_body(usize, commitment)
+        return await self._provider.make_request(body)
 
     async def get_multiple_accounts(
         self,
-        pubkeys: List[Union[PublicKey, str]],
+        pubkeys: List[PublicKey],
         commitment: Optional[Commitment] = None,
         encoding: str = "base64",
         data_slice: Optional[types.DataSliceOpts] = None,
@@ -888,19 +721,18 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                 "id": 1,
             }
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_multiple_accounts_args(
+        body = self._get_multiple_accounts_body(
             pubkeys=pubkeys, commitment=commitment, encoding=encoding, data_slice=data_slice
         )
-        return await self._provider.make_request(*args)
+        return await self._provider.make_request(body)
 
     async def get_program_accounts(  # pylint: disable=too-many-arguments
         self,
-        pubkey: Union[str, PublicKey],
-        commitment: Optional[Commitment] = Finalized,
+        pubkey: PublicKey,
+        commitment: Optional[Commitment] = None,
         encoding: Optional[str] = None,
         data_slice: Optional[types.DataSliceOpts] = None,
-        data_size: Optional[int] = None,
-        memcmp_opts: Optional[List[types.MemcmpOpts]] = None,
+        filters: Optional[Sequence[Union[int, types.MemcmpOpts]]] = None,
     ) -> types.RPCResponse:
         """Returns all accounts owned by the provided program Pubkey.
 
@@ -911,15 +743,15 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                 "base58" (slow), or "base64". If parameter not provided, the default encoding is JSON.
             data_slice: (optional) Limit the returned account data using the provided `offset`: <usize> and
                 `length`: <usize> fields; only available for "base58" or "base64" encoding.
-            data_size: (optional) Option to compare the program account data length with the provided data size.
-            memcmp_opts: (optional) Options to compare a provided series of bytes with program account data at a particular offset.
+            filters: (optional) Options to compare a provided series of bytes with program account data at a particular offset.
+                Note: an int entry is converted to a `dataSize` filter.
 
         Example:
             >>> solana_client = AsyncClient("http://localhost:8899")
             >>> memcmp_opts = [
             ...     types.MemcmpOpts(offset=4, bytes="3Mc6vR"),
             ... ]
-            >>> asyncio.run(solana_client.get_program_accounts("4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", data_size=17, memcmp_opts=memcmp_opts)) # doctest: +SKIP
+            >>> asyncio.run(solana_client.get_program_accounts("4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", filters=[17, memcmp_opts])) # doctest: +SKIP
             {'jsonrpc': "2.0",
              'result' :[{
                 'account' :{
@@ -931,39 +763,37 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                 'pubkey' :'CxELquR1gPP8wHe33gZ4QxqGB3sZ9RSwsJ2KshVewkFY'}],
              'id' :1}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_program_accounts_args(
+        body = self._get_program_accounts_body(
             pubkey=pubkey,
             commitment=commitment,
             encoding=encoding,
             data_slice=data_slice,
-            data_size=data_size,
-            memcmp_opts=memcmp_opts,
+            filters=filters,
         )
-        return await self._provider.make_request(*args)
+        return await self._provider.make_request(body)
 
-    async def get_recent_blockhash(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
-        """Returns a recent block hash from the ledger.
+    async def get_latest_blockhash(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
+        """Returns the latest block hash from the ledger.
 
-        Response also includes a fee schedule that can be used to compute the cost
-        of submitting a transaction using it.
+        Response also includes the last valid block height.
 
         Args:
             commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
 
         Example:
             >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.get_recent_blockhash()) # doctest: +SKIP
+            >>> asyncio.run(solana_client.get_latest_blockhash()) # doctest: +SKIP
             {'jsonrpc': '2.0',
              'result': {'context': {'slot': 1637},
               'value': {'blockhash': 'EALChog1mXQ9nEgEUQpWAtmA5UueUZvZiL16ZivmR7eb',
-               'feeCalculator': {'lamportsPerSignature': 5000}}},
+               'lastValidBlockHeight': 3090}},
              'id': 2}
         """
-        args = self._get_recent_blockhash_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_latest_blockhash_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_signature_statuses(
-        self, signatures: List[Union[str, bytes]], search_transaction_history: bool = False
+        self, signatures: List[Signature], search_transaction_history: bool = False
     ) -> types.RPCResponse:
         """Returns the statuses of a list of signatures.
 
@@ -992,8 +822,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                     'status': {'Ok': null}}, null]},
              'id': 1}
         """
-        args = self._get_signature_statuses_args(signatures, search_transaction_history)
-        return await self._provider.make_request(*args)
+        body = self._get_signature_statuses_body(signatures, search_transaction_history)
+        return await self._provider.make_request(body)
 
     async def get_slot(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the current slot the node is processing.
@@ -1006,8 +836,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_slot()) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': 7515, 'id': 1}
         """
-        args = self._get_slot_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_slot_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_slot_leader(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the current slot leader.
@@ -1022,11 +852,11 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
              'result': 'EWj2cuEuVhi7RX81cnAY3TzpyFwnHzzVwvuTyfmxmhs3',
              'id': 1}
         """
-        args = self._get_slot_leader_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_slot_leader_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_stake_activation(
-        self, pubkey: Union[PublicKey, str], epoch: Optional[int] = None, commitment: Optional[Commitment] = None
+        self, pubkey: PublicKey, epoch: Optional[int] = None, commitment: Optional[Commitment] = None
     ) -> types.RPCResponse:
         """Returns epoch activation information for a stake account.
 
@@ -1041,8 +871,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_stake_activation()) # doctest: +SKIP
             {'jsonrpc': '2.0','result': {'active': 124429280, 'inactive': 73287840, 'state': 'activating'}, 'id': 1}}
         """
-        args = self._get_stake_activation_args(pubkey, epoch, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_stake_activation_body(pubkey, epoch, commitment)
+        return await self._provider.make_request(body)
 
     async def get_supply(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns information about the current supply.
@@ -1065,10 +895,10 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                'total': 1000000000491284780}},
              'id': 1}
         """
-        args = self._get_supply_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_supply_body(commitment)
+        return await self._provider.make_request(body)
 
-    async def get_token_account_balance(self, pubkey: Union[str, PublicKey], commitment: Optional[Commitment] = None):
+    async def get_token_account_balance(self, pubkey: PublicKey, commitment: Optional[Commitment] = None):
         """Returns the token balance of an SPL Token account (UNSTABLE).
 
         Args:
@@ -1086,8 +916,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                     'decimals': 2},
              'id' :1}
         """
-        args = self._get_token_account_balance_args(pubkey, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_token_account_balance_body(pubkey, commitment)
+        return await self._provider.make_request(body)
 
     async def get_token_accounts_by_delegate(
         self,
@@ -1102,8 +932,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             opts: Token account option specifying at least one of `mint` or `program_id`.
             commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
         """
-        args = self._get_token_accounts_by_delegate_args(delegate, opts, commitment)
-        return await self.__get_token_accounts(*args)
+        body = self._get_token_accounts_by_delegate_body(delegate, opts, commitment)
+        return await self._provider.make_request(body)
 
     async def get_token_accounts_by_owner(
         self,
@@ -1118,32 +948,20 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             opts: Token account option specifying at least one of `mint` or `program_id`.
             commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
         """
-        args = self._get_token_accounts_by_owner_args(owner, opts, commitment)
-        return await self.__get_token_accounts(*args)
-
-    async def __get_token_accounts(
-        self,
-        method: types.RPCMethod,
-        pubkey: str,
-        opts: types.TokenAccountOpts,
-        commitment: Commitment,
-    ) -> types.RPCResponse:
-        args = self._get_token_accounts_args(method, pubkey, opts, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_token_accounts_by_owner_body(owner, opts, commitment)
+        return await self._provider.make_request(body)
 
     async def get_token_largest_accounts(
-        self, pubkey: Union[PublicKey, str], commitment: Optional[Commitment] = None
+        self, pubkey: PublicKey, commitment: Optional[Commitment] = None
     ) -> types.RPCResponse:
         """Returns the 20 largest accounts of a particular SPL Token type."""
-        args = self._get_token_largest_account_args(pubkey, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_token_largest_accounts_body(pubkey, commitment)
+        return await self._provider.make_request(body)
 
-    async def get_token_supply(
-        self, pubkey: Union[PublicKey, str], commitment: Optional[Commitment] = None
-    ) -> types.RPCResponse:
+    async def get_token_supply(self, pubkey: PublicKey, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the total supply of an SPL Token type."""
-        args = self._get_token_supply_args(pubkey, commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_token_supply_body(pubkey, commitment)
+        return await self._provider.make_request(body)
 
     async def get_transaction_count(self, commitment: Optional[Commitment] = None) -> types.RPCResponse:
         """Returns the current Transaction count from the ledger.
@@ -1156,8 +974,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             >>> asyncio.run(solana_client.get_transaction_count()) # doctest: +SKIP
             {'jsonrpc': '2.0', 'result': 4554, 'id': 1}
         """
-        args = self._get_transaction_count_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_transaction_count_body(commitment)
+        return await self._provider.make_request(body)
 
     async def get_minimum_ledger_slot(self) -> types.RPCResponse:
         """Returns the lowest slot that the node has information about in its ledger.
@@ -1226,11 +1044,11 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
               'delinquent': []},
              'id': 1}
         """
-        args = self._get_vote_accounts_args(commitment)
-        return await self._provider.make_request(*args)
+        body = self._get_vote_accounts_body(commitment)
+        return await self._provider.make_request(body)
 
     async def request_airdrop(
-        self, pubkey: Union[PublicKey, str], lamports: int, commitment: Optional[Commitment] = None
+        self, pubkey: PublicKey, lamports: int, commitment: Optional[Commitment] = None
     ) -> types.RPCResponse:
         """Requests an airdrop of lamports to a Pubkey.
 
@@ -1247,12 +1065,10 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
              'result': 'uK6gbLbhnTEgjgmwn36D5BRTRkG4AT8r7Q162TLnJzQnHUZVL9r6BYZVfRttrhmkmno6Fp4VQELzL4AiriCo61U',
              'id': 1}
         """
-        args = self._request_airdrop_args(pubkey, lamports, commitment)
-        return await self._provider.make_request(*args)
+        body = self._request_airdrop_body(pubkey, lamports, commitment)
+        return await self._provider.make_request(body)
 
-    async def send_raw_transaction(
-        self, txn: Union[bytes, str], opts: Optional[types.TxOpts] = None
-    ) -> types.RPCResponse:
+    async def send_raw_transaction(self, txn: bytes, opts: Optional[types.TxOpts] = None) -> types.RPCResponse:
         """Send a transaction that has already been signed and serialized into the wire format.
 
         Args:
@@ -1280,9 +1096,9 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
              'id': 1}
         """  # noqa: E501 # pylint: disable=line-too-long
         opts_to_use = types.TxOpts(preflight_commitment=self._commitment) if opts is None else opts
-        args = self._send_raw_transaction_args(txn, opts_to_use)
+        body = self._send_raw_transaction_body(txn, opts_to_use)
 
-        resp = await self._provider.make_request(*args)
+        resp = await self._provider.make_request(body)
         if opts_to_use.skip_confirmation:
             return self._post_send(resp)
         post_send_args = self._send_raw_transaction_post_send_args(resp, opts_to_use)
@@ -1317,28 +1133,36 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
              'result': '236zSA5w4NaVuLXXHK1mqiBuBxkNBu84X6cfLBh1v6zjPrLfyECz4zdedofBaZFhs4gdwzSmij9VkaSo2tR5LTgG',
              'id': 12}
         """
+        last_valid_block_height = None
         if recent_blockhash is None:
             if self.blockhash_cache:
                 try:
                     recent_blockhash = self.blockhash_cache.get()
                 except ValueError:
-                    blockhash_resp = await self.get_recent_blockhash(Finalized)
+                    blockhash_resp = await self.get_latest_blockhash(Finalized)
                     recent_blockhash = self._process_blockhash_resp(blockhash_resp, used_immediately=True)
+                    last_valid_block_height = blockhash_resp["result"]["value"]["lastValidBlockHeight"]
             else:
-                blockhash_resp = await self.get_recent_blockhash(Finalized)
+                blockhash_resp = await self.get_latest_blockhash(Finalized)
                 recent_blockhash = self.parse_recent_blockhash(blockhash_resp)
+                last_valid_block_height = blockhash_resp["result"]["value"]["lastValidBlockHeight"]
+
         txn.recent_blockhash = recent_blockhash
 
         txn.sign(*signers)
-        opts_to_use = types.TxOpts(preflight_commitment=self._commitment) if opts is None else opts
+        opts_to_use = (
+            types.TxOpts(preflight_commitment=self._commitment, last_valid_block_height=last_valid_block_height)
+            if opts is None
+            else opts
+        )
         txn_resp = await self.send_raw_transaction(txn.serialize(), opts=opts_to_use)
         if self.blockhash_cache:
-            blockhash_resp = await self.get_recent_blockhash(Finalized)
+            blockhash_resp = await self.get_latest_blockhash(Finalized)
             self._process_blockhash_resp(blockhash_resp, used_immediately=False)
         return txn_resp
 
     async def simulate_transaction(
-        self, txn: Union[bytes, str, Transaction], sig_verify: bool = False, commitment: Optional[Commitment] = None
+        self, txn: Transaction, sig_verify: bool = False, commitment: Optional[Commitment] = None
     ) -> types.RPCResponse:
         """Simulate sending a transaction.
 
@@ -1363,22 +1187,8 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
                  'logs': ['BPF program 83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri success']},
              'id':1}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._simulate_transaction_args(txn, sig_verify, commitment)
-        return await self._provider.make_request(*args)
-
-    async def set_log_filter(self, log_filter: str) -> types.RPCResponse:
-        """Sets the log filter on the validator.
-
-        Args:
-            log_filter: The new log filter to use.
-
-        Example:
-            >>> solana_client = AsyncClient("http://localhost:8899")
-            >>> asyncio.run(solana_client.set_log_filter("solana_core=debug")) # doctest: +SKIP
-            {'jsonrpc': '2.0', 'result': None, 'id': 1}
-        """
-        args = self._set_log_filter_args(log_filter)
-        return await self._provider.make_request(*args)
+        body = self._simulate_transaction_body(txn, sig_verify, commitment)
+        return await self._provider.make_request(body)
 
     async def validator_exit(self) -> types.RPCResponse:
         """Request to have the validator exit.
@@ -1392,16 +1202,24 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
         """
         return await self._provider.make_request(self._validator_exit)
 
-    async def __post_send_with_confirm(self, resp: types.RPCResponse, conf_comm: Commitment) -> types.RPCResponse:
+    async def __post_send_with_confirm(
+        self, resp: types.RPCResponse, conf_comm: Commitment, last_valid_block_height: Optional[int]
+    ) -> types.RPCResponse:
         resp = self._post_send(resp)
         self._provider.logger.info(
             "Transaction sent to %s. Signature %s: ", self._provider.endpoint_uri, resp["result"]
         )
-        await self.confirm_transaction(resp["result"], conf_comm)
+        await self.confirm_transaction(
+            Signature.from_string(resp["result"]), conf_comm, last_valid_block_height=last_valid_block_height
+        )
         return resp
 
     async def confirm_transaction(
-        self, tx_sig: str, commitment: Optional[Commitment] = None, sleep_seconds: float = 0.5
+        self,
+        tx_sig: Signature,
+        commitment: Optional[Commitment] = None,
+        sleep_seconds: float = 0.5,
+        last_valid_block_height: Optional[int] = None,
     ) -> types.RPCResponse:
         """Confirm the transaction identified by the specified signature.
 
@@ -1409,25 +1227,48 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
             tx_sig: the transaction signature to confirm.
             commitment: Bank state to query. It can be either "finalized", "confirmed" or "processed".
             sleep_seconds: The number of seconds to sleep when polling the signature status.
+            last_valid_block_height: The block height by which the transaction would become invalid.
         """
-        timeout = time() + 30
         commitment_to_use = self._commitment if commitment is None else commitment
         commitment_rank = COMMITMENT_RANKS[commitment_to_use]
-        while time() < timeout:
-            resp = await self.get_signature_statuses([tx_sig])
-            maybe_rpc_error = resp.get("error")
-            if maybe_rpc_error is not None:
-                raise RPCException(maybe_rpc_error)
-            resp_value = resp["result"]["value"][0]
-            if resp_value is not None:
-                confirmation_status = resp_value["confirmationStatus"]
-                confirmation_rank = COMMITMENT_RANKS[confirmation_status]
-                if confirmation_rank >= commitment_rank:
-                    break
-            await asyncio.sleep(sleep_seconds)
+        if last_valid_block_height:  # pylint: disable=no-else-return
+            current_blockheight = (await self.get_block_height(commitment))["result"]
+            while current_blockheight <= last_valid_block_height:
+                resp = await self.get_signature_statuses([tx_sig])
+                maybe_rpc_error = resp.get("error")
+                if maybe_rpc_error is not None:
+                    raise RPCException(maybe_rpc_error)
+                resp_value = resp["result"]["value"][0]
+                if resp_value is not None:
+                    confirmation_status = resp_value["confirmationStatus"]
+                    confirmation_rank = COMMITMENT_RANKS[confirmation_status]
+                    if confirmation_rank >= commitment_rank:
+                        break
+                current_blockheight = (await self.get_block_height(commitment))["result"]
+                await asyncio.sleep(sleep_seconds)
+            else:
+                maybe_rpc_error = resp.get("error")
+                if maybe_rpc_error is not None:
+                    raise RPCException(maybe_rpc_error)
+                raise TransactionExpiredBlockheightExceededError(f"{tx_sig} has expired: block height exceeded")
+            return resp
         else:
-            maybe_rpc_error = resp.get("error")
-            if maybe_rpc_error is not None:
-                raise RPCException(maybe_rpc_error)
-            raise UnconfirmedTxError(f"Unable to confirm transaction {tx_sig}")
-        return resp
+            timeout = time() + 30
+            while time() < timeout:
+                resp = await self.get_signature_statuses([tx_sig])
+                maybe_rpc_error = resp.get("error")
+                if maybe_rpc_error is not None:
+                    raise RPCException(maybe_rpc_error)
+                resp_value = resp["result"]["value"][0]
+                if resp_value is not None:
+                    confirmation_status = resp_value["confirmationStatus"]
+                    confirmation_rank = COMMITMENT_RANKS[confirmation_status]
+                    if confirmation_rank >= commitment_rank:
+                        break
+                await asyncio.sleep(sleep_seconds)
+            else:
+                maybe_rpc_error = resp.get("error")
+                if maybe_rpc_error is not None:
+                    raise RPCException(maybe_rpc_error)
+                raise UnconfirmedTxError(f"Unable to confirm transaction {tx_sig}")
+            return resp
