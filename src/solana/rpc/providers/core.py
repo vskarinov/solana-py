@@ -40,12 +40,15 @@ class _HTTPProviderCore(FriendlyJsonSerde):
         if self.extra_headers:
             headers.update(self.extra_headers)
         data = body.to_json()
+        self.content = self.json_decode(data)
         data_kwarg = "content" if is_async else "data"
-        return {"url": self.endpoint_uri, "headers": headers, data_kwarg: self.content}
+        return {"url": self.endpoint_uri, "headers": headers, data_kwarg: data}
 
     def _before_request(self, body: Body, is_async: bool) -> Dict[str, Any]:
         return self._build_request_kwargs(body=body, is_async=is_async)
 
     def _after_request(self, raw_response: Union[requests.Response, httpx.Response]) -> RPCResponse:
-        raw_response.raise_for_status()
+        if raw_response.status_code not in [406]:
+            raw_response.raise_for_status()
+        self.response_headers = dict(raw_response.headers)
         return cast(RPCResponse, self.json_decode(raw_response.text))

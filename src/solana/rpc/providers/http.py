@@ -60,8 +60,10 @@ class HTTPProvider(BaseProvider, _HTTPProviderCore):
         """Make an HTTP request to an http rpc endpoint."""
         request_kwargs = self._build_request_kwargs(body, is_async=False)
         raw_response = requests.post(**request_kwargs, timeout=self.timeout)
-        return self._after_request(raw_response=raw_response)
-# >>>>>>> upstream/master
+        if raw_response.status_code == 200:
+            return self._after_request(raw_response=raw_response)
+        else:
+            return raw_response
 
     def is_connected(self) -> bool:
         """Health check."""

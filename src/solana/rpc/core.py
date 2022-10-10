@@ -7,6 +7,9 @@ try:
 except ImportError:
     from typing_extensions import Literal  # type: ignore
 
+import itertools
+
+from solders.hash import Hash
 from solders.pubkey import Pubkey
 from solders.rpc.requests import (
     GetBalance,
@@ -52,6 +55,10 @@ from solders.rpc.requests import (
     GetInflationRate,
     MinimumLedgerSlot,
     ValidatorExit,
+    GetHealth,
+    GetBlockProduction,
+    GetBlocksWithLimit,
+    IsBlockhashValid,
 )
 from solders.rpc.config import (
     RpcContextConfig,
@@ -71,6 +78,8 @@ from solders.rpc.config import (
     RpcRequestAirdropConfig,
     RpcSendTransactionConfig,
     RpcSimulateTransactionConfig,
+    RpcBlockProductionConfig,
+    RpcBlockProductionConfigRange
 )
 from solders.rpc.filter import Memcmp
 from solders.account_decoder import UiAccountEncoding, UiDataSliceConfig
@@ -142,15 +151,6 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
     _before_rpc_config_key = "before"
     _limit_rpc_config_key = "limit"
     _until_rpc_config_key = "until"
-    _get_cluster_nodes = GetClusterNodes()
-    _get_epoch_schedule = GetEpochSchedule()
-    _get_first_available_block = GetFirstAvailableBlock()
-    _get_genesis_hash = GetGenesisHash()
-    _get_identity = GetIdentity()
-    _get_inflation_rate = GetInflationRate()
-    _minimum_ledger_slot = MinimumLedgerSlot()
-    _get_version = GetVersion()
-    _validator_exit = ValidatorExit()
 
     def __init__(self, commitment: Optional[Commitment] = None, blockhash_cache: Union[BlockhashCache, bool] = False):
         self._commitment = commitment or Finalized
@@ -159,57 +159,90 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
             if blockhash_cache is True
             else cast(Union[BlockhashCache, Literal[False]], blockhash_cache)
         )
+        self._session_request_count = itertools.count()
+
+        self._get_cluster_nodes = GetClusterNodes(id=self._increment_counter_and_get_id())
+        self._get_epoch_schedule = GetEpochSchedule(id=self._increment_counter_and_get_id())
+        self._get_first_available_block = GetFirstAvailableBlock(id=self._increment_counter_and_get_id())
+        self._get_genesis_hash = GetGenesisHash(id=self._increment_counter_and_get_id())
+        self._get_identity = GetIdentity(id=self._increment_counter_and_get_id())
+        self._get_inflation_rate = GetInflationRate(id=self._increment_counter_and_get_id())
+        self._minimum_ledger_slot = MinimumLedgerSlot(id=self._increment_counter_and_get_id())
+        self._get_version = GetVersion(id=self._increment_counter_and_get_id())
+        self._validator_exit = ValidatorExit(id=self._increment_counter_and_get_id())
+        self._get_health = GetHealth(id=self._increment_counter_and_get_id())
 
     @property
     def commitment(self) -> Commitment:
         """The default commitment used for requests."""
         return self._commitment
-    def _get_balance_body(self, pubkey: PublicKey, commitment: Optional[Commitment]) -> GetBalance:
+
+    def _increment_counter_and_get_id(self) -> int:
+        return (next(self._session_request_count) + 1)
+
+    def _get_blockhash_valid_body(self,
+                                blockhash: Hash,
+                                commitment: Optional[Commitment],
+                                min_context_slot: Optional[int]) -> IsBlockhashValid:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetBalance(pubkey.to_solders(), RpcContextConfig(commitment=commitment_to_use))
+        return IsBlockhashValid(blockhash,
+                                RpcContextConfig(commitment=commitment_to_use,
+                                                            min_context_slot=min_context_slot
+                                                            )
+                                )
+    def _get_balance_body(self, pubkey: PublicKey,
+                          commitment: Optional[Commitment],
+                          min_context_slot: Optional[int]) -> GetBalance:
+        commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
+        return GetBalance(pubkey.to_solders(), RpcContextConfig(commitment=commitment_to_use,
+                                                                min_context_slot=min_context_slot
+                                                                )
+                          )
 
     def _get_account_info_body(
         self,
         pubkey: PublicKey,
         commitment: Optional[Commitment],
-        encoding: str,
+        encoding: Optional[str],
         data_slice: Optional[types.DataSliceOpts],
+        min_context_slot: Optional[int],
     ) -> GetAccountInfo:
         data_slice_to_use = (
             None if data_slice is None else UiDataSliceConfig(offset=data_slice.offset, length=data_slice.length)
         )
-        encoding_to_use = _ACCOUNT_ENCODING_TO_SOLDERS[encoding]
+        encoding_to_use = _ACCOUNT_ENCODING_TO_SOLDERS[encoding] if encoding else encoding
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         config = RpcAccountInfoConfig(
-            encoding=encoding_to_use, data_slice=data_slice_to_use, commitment=commitment_to_use
+            encoding=encoding_to_use, data_slice=data_slice_to_use, commitment=commitment_to_use,
+            min_context_slot=min_context_slot
         )
-        return GetAccountInfo(pubkey.to_solders(), config)
+        return GetAccountInfo(pubkey.to_solders(), config, id=self._increment_counter_and_get_id())
 
-    @staticmethod
-    def _get_block_commitment_body(slot: int) -> GetBlockCommitment:
-        return GetBlockCommitment(slot)
+    def _get_block_commitment_body(self, slot: int) -> GetBlockCommitment:
+        return GetBlockCommitment(slot=slot, id=self._increment_counter_and_get_id())
 
-    @staticmethod
-    def _get_block_time_body(slot: int) -> GetBlockTime:
-        return GetBlockTime(slot)
+    def _get_block_time_body(self, slot: int) -> GetBlockTime:
+        return GetBlockTime(slot=slot, id=self._increment_counter_and_get_id())
 
-    @staticmethod
-    def _get_block_body(slot: int, encoding: str) -> GetBlock:
+    def _get_block_body(self, slot: int, encoding: str) -> GetBlock:
         encoding_to_use = _TX_ENCODING_TO_SOLDERS[encoding]
         config = RpcBlockConfig(encoding=encoding_to_use)
-        return GetBlock(slot=slot, config=config)
+        return GetBlock(slot=slot, config=config, id=self._increment_counter_and_get_id())
 
-    def _get_block_height_body(self, commitment: Optional[Commitment]) -> GetBlockHeight:
+    def _get_block_height_body(self, commitment: Optional[Commitment],
+                               min_context_slot: Optional[int]) -> GetBlockHeight:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetBlockHeight(RpcContextConfig(commitment=commitment_to_use))
+        return GetBlockHeight(RpcContextConfig(commitment=commitment_to_use,
+                                               min_context_slot=min_context_slot
+                                               ),
+                              id=self._increment_counter_and_get_id()
+                              )
 
-    @staticmethod
-    def _get_recent_performance_samples_body(limit: Optional[int]) -> GetRecentPerformanceSamples:
-        return GetRecentPerformanceSamples(limit)
+    def _get_recent_performance_samples_body(self, limit: Optional[int]) -> GetRecentPerformanceSamples:
+        return GetRecentPerformanceSamples(limit, id=self._increment_counter_and_get_id())
 
-    @staticmethod
-    def _get_blocks_body(start_slot: int, end_slot: Optional[int]) -> GetBlocks:
-        return GetBlocks(start_slot, end_slot)
+    def _get_blocks_body(self, start_slot: int, end_slot: Optional[int]) -> GetBlocks:
+        return GetBlocks(start_slot, end_slot, id=self._increment_counter_and_get_id())
 
     def _get_signatures_for_address_body(
         self,
@@ -218,10 +251,15 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         until: Optional[Signature],
         limit: Optional[int],
         commitment: Optional[Commitment],
+        min_context_slot: Optional[int] = None,
     ) -> GetSignaturesForAddress:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        config = RpcSignaturesForAddressConfig(before=before, until=until, limit=limit, commitment=commitment_to_use)
-        return GetSignaturesForAddress(address.to_solders(), config)
+        config = RpcSignaturesForAddressConfig(before=before,
+                                               until=until,
+                                               limit=limit,
+                                               commitment=commitment_to_use,
+                                               min_context_slot=min_context_slot)
+        return GetSignaturesForAddress(address.to_solders(), config, id=self._increment_counter_and_get_id())
 
     def _get_transaction_body(
         self, tx_sig: Signature, encoding: str = "json", commitment: Commitment = None
@@ -229,36 +267,36 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         encoding_to_use = _TX_ENCODING_TO_SOLDERS[encoding]
         config = RpcTransactionConfig(encoding=encoding_to_use, commitment=commitment_to_use)
-        return GetTransaction(tx_sig, config)
+        return GetTransaction(tx_sig, config, id=self._increment_counter_and_get_id())
 
-    def _get_epoch_info_body(self, commitment: Optional[Commitment]) -> GetEpochInfo:
+    def _get_epoch_info_body(self, commitment: Optional[Commitment], min_context_slot: Optional[int]) -> GetEpochInfo:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        config = RpcContextConfig(commitment=commitment_to_use)
-        return GetEpochInfo(config)
+        config = RpcContextConfig(commitment=commitment_to_use, min_context_slot=min_context_slot)
+        return GetEpochInfo(config, id=self._increment_counter_and_get_id())
     def _get_fee_for_message_body(self, message: Message, commitment: Optional[Commitment]) -> GetFeeForMessage:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetFeeForMessage(message.to_solders(), commitment_to_use)
+        return GetFeeForMessage(message.to_solders(), commitment_to_use, id=self._increment_counter_and_get_id())
 
     def _get_inflation_governor_body(self, commitment: Optional[Commitment]) -> GetInflationGovernor:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetInflationGovernor(commitment_to_use)
+        return GetInflationGovernor(commitment_to_use, id=self._increment_counter_and_get_id())
     def _get_largest_accounts_body(
         self, filter_opt: Optional[str], commitment: Optional[Commitment]
     ) -> GetLargestAccounts:
         filter_to_use = None if filter_opt is None else _LARGEST_ACCOUNTS_FILTER_TO_SOLDERS[filter_opt]
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetLargestAccounts(commitment=commitment_to_use, filter_=filter_to_use)
+        return GetLargestAccounts(commitment=commitment_to_use, filter_=filter_to_use, id=self._increment_counter_and_get_id())
 
     def _get_leader_schedule_body(self, slot: Optional[int], commitment: Optional[Commitment]) -> GetLeaderSchedule:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         config = RpcLeaderScheduleConfig(commitment=commitment_to_use)
-        return GetLeaderSchedule(slot, config)
+        return GetLeaderSchedule(slot, config, id=self._increment_counter_and_get_id())
 
     def _get_minimum_balance_for_rent_exemption_body(
         self, usize: int, commitment: Optional[Commitment]
     ) -> GetMinimumBalanceForRentExemption:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetMinimumBalanceForRentExemption(usize, commitment_to_use)
+        return GetMinimumBalanceForRentExemption(usize, commitment_to_use, id=self._increment_counter_and_get_id())
 
     def _get_multiple_accounts_body(
         self,
@@ -266,6 +304,7 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         commitment: Optional[Commitment],
         encoding: str,
         data_slice: Optional[types.DataSliceOpts],
+        min_context_slot: Optional[int],
     ) -> GetMultipleAccounts:
         accounts = [pubkey.to_solders() for pubkey in pubkeys]
         encoding_to_use = _ACCOUNT_ENCODING_TO_SOLDERS[encoding]
@@ -274,9 +313,12 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
             None if data_slice is None else UiDataSliceConfig(offset=data_slice.offset, length=data_slice.length)
         )
         config = RpcAccountInfoConfig(
-            encoding=encoding_to_use, commitment=commitment_to_use, data_slice=data_slice_to_use
+            encoding=encoding_to_use,
+            commitment=commitment_to_use,
+            data_slice=data_slice_to_use,
+            min_context_slot=min_context_slot
         )
-        return GetMultipleAccounts(accounts, config)
+        return GetMultipleAccounts(accounts, config, id=self._increment_counter_and_get_id())
 
     def _get_program_accounts_body(
         self,
@@ -298,93 +340,51 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
             None if filters is None else [x if isinstance(x, int) else Memcmp(*x) for x in filters]
         )
         config = RpcProgramAccountsConfig(account_config, filters_to_use)
-        return GetProgramAccounts(pubkey.to_solders(), config)
+        return GetProgramAccounts(pubkey.to_solders(), config, id=self._increment_counter_and_get_id())
 
-    def _get_latest_blockhash_body(self, commitment: Optional[Commitment]) -> GetLatestBlockhash:
+    def _get_latest_blockhash_body(self,
+
+                                   commitment: Optional[Commitment],
+                                   min_context_slot: Optional[int]
+                                   ) -> GetLatestBlockhash:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetLatestBlockhash(RpcContextConfig(commitment_to_use))
+        return GetLatestBlockhash(RpcContextConfig(commitment_to_use, min_context_slot=min_context_slot))
 
-    def _get_latest_blockhash_args(
-        self,
-        commitment: Optional[Commitment],
-        min_context_slot: Optional[int] = None,
-    ) -> Tuple[types.RPCMethod, Dict[str, Commitment]]:
-        configuration = {self._comm_key: commitment or self._commitment}
-        if min_context_slot is not None:
-            configuration[self._min_slot_key] = min_context_slot
+    # DEPRECATED
+    def _get_block_production_body(self,
+                                   first_slot:Optional[int],
+                                   last_slot:Optional[int],
+                                   identity:Optional[Pubkey],
+                                   commitment: Optional[Commitment],
+                                   ) -> GetBlockProduction:
+        commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
+        if first_slot and last_slot:
+            range = RpcBlockProductionConfigRange(first_slot=first_slot, last_slot=last_slot)
+            config = RpcBlockProductionConfig(range=range, identity=identity, commitment=commitment_to_use)
+        else:
+            config = RpcBlockProductionConfig(commitment=commitment_to_use)
+        return GetBlockProduction(config, id=self._increment_counter_and_get_id())
 
-        return types.RPCMethod("getLatestBlockhash"), configuration
+    # DEPRECATED
+    def _get_blocks_with_limit_body(self,
+                                    start: int,
+                                    limit: Optional[int],
+                                    commitment: Optional[Commitment]) -> GetBlocksWithLimit:
+        commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
+        return GetBlocksWithLimit(start, limit, commitment_to_use, id=self._increment_counter_and_get_id())
 
-    def _get_fee_for_message_args(
-        self, message: str, commitment: Optional[Commitment]
-    ) -> Tuple[types.RPCMethod, str, Dict[str, Commitment]]:
-        return (
-            types.RPCMethod("getFeeForMessage"),
-            message,
-            {self._comm_key: commitment or self._commitment},
-        )
-
-    def _get_is_blockhash_valid_args(
-        self,
-        blockhash: str,
-        commitment: Optional[Commitment],
-        min_context_slot: Optional[int],
-    ) -> Tuple[types.RPCMethod, str, Dict[str, Commitment]]:
-        configuration = {self._comm_key: commitment or self._commitment}
-        if min_context_slot is not None:
-            configuration[self._min_slot_key] = min_context_slot
-
-        return (
-            types.RPCMethod("isBlockhashValid"),
-            blockhash,
-            configuration,
-        )
-
-    @staticmethod
-    def _get_slot_leaders_args(
-        start_slot: int, limit: int,
-    ) -> Tuple[types.RPCMethod, int, int]:
-        return (
-            types.RPCMethod("getSlotLeaders"), start_slot, limit,
-        )
-
-    def _get_block_production_args(
-        self,
-        commitment: Optional[Commitment] = None,
-        first_slot: Optional[int] = None,
-        last_slot: Optional[int] = None,
-        identity: Optional[str] = None,
-    ) -> Tuple[types.RPCMethod, Dict[str, Any]]:
-        opts: Dict[str, Union[int, str, Commitment]] = {
-            self._comm_key: commitment or self._commitment
-        }
-        if first_slot is not None:
-            slot_range = {'firstSlot': first_slot}
-            if last_slot is not None:
-                slot_range['lastSlot'] = last_slot
-
-            opts['range'] = slot_range
-
-        if identity is not None:
-            opts['identity'] = identity
-
-        return (
-            types.RPCMethod("getBlockProduction"), opts,
-        )
-
-    @staticmethod
-    def _get_signature_statuses_body(
+    def _get_signature_statuses_body(self,
         signatures: List[Signature], search_transaction_history: bool
     ) -> GetSignatureStatuses:
         config = RpcSignatureStatusConfig(search_transaction_history)
-        return GetSignatureStatuses(signatures, config)
+        return GetSignatureStatuses(signatures, config, id=self._increment_counter_and_get_id())
 
-    def _get_slot_body(self, commitment: Optional[Commitment]) -> GetSlot:
+    def _get_slot_body(self, commitment: Optional[Commitment], min_context_slot: Optional[int] = None) -> GetSlot:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetSlot(RpcContextConfig(commitment_to_use))
-    def _get_slot_leader_body(self, commitment: Optional[Commitment]) -> GetSlotLeader:
+        return GetSlot(RpcContextConfig(commitment_to_use, min_context_slot), id=self._increment_counter_and_get_id())
+    def _get_slot_leader_body(self, commitment: Optional[Commitment], min_context_slot: Optional[int] = None) -> GetSlotLeader:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetSlotLeader(RpcContextConfig(commitment_to_use))
+        return GetSlotLeader(RpcContextConfig(commitment_to_use, min_context_slot), id=self._increment_counter_and_get_id())
 
     def _get_stake_activation_body(
         self,
@@ -393,17 +393,17 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         commitment: Optional[Commitment],
     ) -> GetStakeActivation:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetStakeActivation(pubkey.to_solders(), RpcEpochConfig(epoch, commitment_to_use))
+        return GetStakeActivation(pubkey.to_solders(), RpcEpochConfig(epoch, commitment_to_use), id=self._increment_counter_and_get_id())
 
     def _get_supply_body(self, commitment: Optional[Commitment]) -> GetSupply:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetSupply(RpcSupplyConfig(commitment=commitment_to_use, exclude_non_circulating_accounts_list=False))
+        return GetSupply(RpcSupplyConfig(commitment=commitment_to_use, exclude_non_circulating_accounts_list=False), id=self._increment_counter_and_get_id())
 
     def _get_token_account_balance_body(
         self, pubkey: PublicKey, commitment: Optional[Commitment]
     ) -> GetTokenAccountBalance:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetTokenAccountBalance(pubkey.to_solders(), commitment_to_use)
+        return GetTokenAccountBalance(pubkey.to_solders(), commitment_to_use, id=self._increment_counter_and_get_id())
 
     def _get_token_accounts_convert(
         self, pubkey: PublicKey, opts: types.TokenAccountOpts, commitment: Optional[Commitment]
@@ -451,9 +451,9 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         return GetTokenSupply(pubkey.to_solders(), commitment_to_use)
 
-    def _get_transaction_count_body(self, commitment: Optional[Commitment]) -> GetTransactionCount:
+    def _get_transaction_count_body(self, commitment: Optional[Commitment], min_context_slot: Optional[int]) -> GetTransactionCount:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
-        return GetTransactionCount(RpcContextConfig(commitment_to_use))
+        return GetTransactionCount(RpcContextConfig(commitment_to_use, min_context_slot))
 
     def _get_vote_accounts_body(self, commitment: Optional[Commitment]) -> GetVoteAccounts:
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
@@ -486,13 +486,13 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
         return resp, opts.preflight_commitment, opts.last_valid_block_height
 
     def _simulate_transaction_body(
-        self, txn: Transaction, sig_verify: bool, commitment: Optional[Commitment]
+        self, txn: Transaction, sig_verify: bool, commitment: Optional[Commitment], min_context_slot: Optional[int]
     ) -> SimulateTransaction:
         if txn.recent_blockhash is None:
             raise ValueError("transaction must have a valid blockhash")
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         config = RpcSimulateTransactionConfig(
-            sig_verify=sig_verify, commitment=commitment_to_use, encoding=UiTransactionEncoding.Base64
+            sig_verify=sig_verify, commitment=commitment_to_use, min_context_slot=min_context_slot #, encoding=UiTransactionEncoding.Base64
         )
         return SimulateTransaction(txn.to_solders(), config)
 
