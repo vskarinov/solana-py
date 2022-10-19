@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from time import sleep, time
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 from warnings import warn
 
 from solana.blockhash import Blockhash, BlockhashCache

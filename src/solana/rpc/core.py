@@ -137,7 +137,7 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
     ) -> Tuple[
         types.RPCMethod,
         int,
-        Dict[str, Optional[str], Optional[bool], Commitment, Optional[int]]
+        # Dict[str, Optional[str], Optional[bool], Commitment, Optional[int]]
     ]:
         opts = {
             self._encoding_key: encoding,
@@ -251,11 +251,11 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
     ) -> Tuple[
         types.RPCMethod,
         str,
-        Dict[
-            str,
-            Union[str, Commitment],
-            Optional[int]
-        ]
+        # Dict[
+        #     str,
+        #     Union[str, Commitment],
+        #     Optional[int]
+        # ]
     ]:
 
         return (
