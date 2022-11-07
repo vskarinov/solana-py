@@ -32,7 +32,10 @@ Max = Commitment("max")
 Root = Commitment("root")
 """Deprecated"""
 
-Single = Commitment("singleGossip")
+SingleGossip = Commitment("singleGossip")
+"""Deprecated"""
+
+Single = Commitment("single")
 """Deprecated"""
 
 Recent = Commitment("recent")
