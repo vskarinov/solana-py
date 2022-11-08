@@ -1,6 +1,72 @@
 # Changelog
 
-## [0.25.0] - Unreleased
+## [0.28.0] - 2022-10-31
+
+## Changed
+
+- Use latest `solders`. Note that the parsed fields of jsonParsed responses are now dicts rather than strings. [(#318)](https://github.com/michaelhly/solana-py/pull/318)
+- Remove `requests` dependency [(#315)](https://github.com/michaelhly/solana-py/pull/315)
+
+## Fixed
+
+- Fix flakiness in token client transactions [(#314)](https://github.com/michaelhly/solana-py/pull/314)
+
+## [0.27.2] - 2022-10-15
+
+## Changed
+
+- Use latest `solders` [(#312)](https://github.com/michaelhly/solana-py/pull/312)
+
+## [0.27.1] - 2022-10-14
+
+## Fixed
+
+- Fix incorrect `encoding` arg in `_simulate_transaction_body` [(#311)](https://github.com/michaelhly/solana-py/pull/311)
+
+## [0.27.0] - 2022-10-14
+
+## Changed
+
+- Replace SubscriptionError.code with SubscriptionError.type [(#309)](https://github.com/michaelhly/solana-py/pull/309)
+
+## Fixed 
+
+- Fix parsing of RPC error messages [(#309)](https://github.com/michaelhly/solana-py/pull/309)
+- Correctly filter by program_id in _get_token_accounts_convert [(#308)](https://github.com/michaelhly/solana-py/pull/308)
+
+
+## [0.26.0] - 2022-10-13
+
+## Added
+
+- Added batch request methods `(Async)HTTPProvider.make_batch_request(_unparsed)` [(#304)](https://github.com/michaelhly/solana-py/pull/304)
+- Added `make_request_unparsed` to `(Async)HTTPProvider` [(#304)](https://github.com/michaelhly/solana-py/pull/304)
+
+## Changed
+
+- Use solders for parsing RPC requests [(#302)](https://github.com/michaelhly/solana-py/pull/302):
+    - **Breaking change**: Every RPC method now returns a strongly typed object instead of a dictionary.
+        For example, `client.get_balance` returns `GetBalanceResp`.
+    - **Breaking change**: RPC methods now raise `RPCException` if the RPC returns an error result.
+        Previously only the transaction sending methods did this.
+    - **Breaking change**: RPC methods that can return `jsonParsed` data now have their own dedicated Python
+        method you should use. For example, instead of `client.get_account_info(..., encoding="jsonParsed")`
+        you should do `client.get_account_info_json_parsed(...)`. This is done for the sake of static typing.
+    - **Breaking change**: The `get_accounts` method on the SPL Token client has been split into four separate methods:
+        `get_accounts_by_delegate`, `get_accounts_by_owner`, `get_accounts_by_delegate_json_parsed`, and `get_accounts_by_owner_json_parsed`.
+    - **Breaking change**: `solana.rpc.responses` has been removed and supplanted by `solders.rpc.responses`.
+- Remove unused deps: `apischema`, `based58`, `jsonrpcclient`, `jsonrpcserver`.
+
+- Use Solders for building RPC requests:
+    - **Breaking change**: Removed deprecated RPC methods.
+    - **Breaking change**: Functions that accepted Union[PublicKey, str] now only accept PublicKey.
+    - **Breaking change**: RPC functions that accepted a `str` signature param now expect a `solders.signature.Signature`.
+
+## Fixed
+
+- `send_raw_transaction` now defaults to the client's commitment level if `preflight_commitment` is not otherwise specified.
+
+## [0.25.0] - 2022-06-21
 
 ## Fixed
 
