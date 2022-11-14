@@ -86,12 +86,13 @@ from solana.publickey import PublicKey
 from solana.rpc import types
 from solana.transaction import Transaction
 
-from .commitment import Commitment, Confirmed, Finalized, Processed
+from .commitment import Commitment, Confirmed, Finalized, Processed, Max
 
 _COMMITMENT_TO_SOLDERS = {
     Finalized: CommitmentLevel.Finalized,
     Confirmed: CommitmentLevel.Confirmed,
     Processed: CommitmentLevel.Processed,
+    Max: CommitmentLevel.from_string('max'),
 }
 _TX_ENCODING_TO_SOLDERS = {
     "binary": UiTransactionEncoding.Binary,

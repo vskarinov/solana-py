@@ -114,6 +114,18 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         super().__init__(commitment, blockhash_cache)
         self._provider = http.HTTPProvider(endpoint, timeout=timeout, extra_headers=extra_headers)
 
+    @property
+    def request_dict(self):
+        return self._provider.request if getattr(self, '_provider') else None
+
+    @property
+    def response_dict(self):
+        return self._provider.response if getattr(self, '_provider') else None
+
+    # @property
+    # def response_headers(self):
+    #     return self._provider.response_headers if getattr(self, '_provider') else None
+
     def is_connected(self) -> bool:
         """Health check.
 
@@ -1108,13 +1120,13 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
             sleep_seconds: The number of seconds to sleep when polling the signature status.
             last_valid_block_height: The block height by which the transaction would become invalid.
         """
-        timeout = time() + 30
+        timeout = time() + 90
         commitment_to_use = _COMMITMENT_TO_SOLDERS[commitment or self._commitment]
         commitment_rank = int(commitment_to_use)
         if last_valid_block_height:  # pylint: disable=no-else-return
             current_blockheight = (self.get_block_height(commitment)).value
             while current_blockheight <= last_valid_block_height:
-                resp = self.get_signature_statuses([tx_sig])
+                resp = self.get_signature_statuses([Signature.from_string(tx_sig)])
                 if isinstance(resp, RPCError.__args__):  # type: ignore
                     raise RPCException(resp)
                 resp_value = resp.value[0]
@@ -1133,7 +1145,7 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
             return resp
         else:
             while time() < timeout:
-                resp = self.get_signature_statuses([tx_sig])
+                resp = self.get_signature_statuses([Signature.from_string(tx_sig)])
                 resp_value = resp.value[0]
                 if resp_value is not None:
                     confirmation_status = resp_value.confirmation_status

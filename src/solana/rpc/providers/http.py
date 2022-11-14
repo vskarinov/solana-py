@@ -50,8 +50,8 @@ class HTTPProvider(BaseProvider, _HTTPProviderCore):
 
     def make_request_unparsed(self, body: Body) -> str:
         """Make an async HTTP request to an http rpc endpoint."""
-        request_kwargs = self._before_request(body=body)
-        raw_response = httpx.post(**request_kwargs)
+        self.request = request_kwargs = self._before_request(body=body)
+        self.response = raw_response = httpx.post(**request_kwargs)
         return _after_request_unparsed(raw_response)
 
     def make_batch_request_unparsed(self, reqs: Tuple[Body, ...]) -> str:
