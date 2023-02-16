@@ -122,9 +122,12 @@ class _ClientCore:  # pylint: disable=too-few-public-methods
     def _get_block_time_args(slot: int) -> Tuple[types.RPCMethod, int]:
         return types.RPCMethod("getBlockTime"), slot
 
-    @staticmethod
-    def _get_confirmed_block_args(slot: int, encoding: str) -> Tuple[types.RPCMethod, int, str]:
-        return types.RPCMethod("getConfirmedBlock"), slot, encoding
+    def _get_confirmed_block_args(self, slot: int, encoding: str, max_supported_transaction_version:int) -> Tuple[types.RPCMethod, int, str]:
+        opts = {
+            self._encoding_key: encoding,
+            self._max_support_transaction_version: max_supported_transaction_version,
+        }
+        return types.RPCMethod("getConfirmedBlock"), slot, opts
 
     def _get_block_args(
             self,
