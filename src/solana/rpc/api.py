@@ -251,6 +251,7 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         self,
         slot: int,
         encoding: str = "json",
+        max_support_transaction_version=None,
     ) -> types.RPCResponse:
         """Returns identity and transaction information about a confirmed block in the ledger.
 
@@ -303,7 +304,11 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
                  'base64']}]},
              'id': 10}
         """  # noqa: E501 # pylint: disable=line-too-long
-        args = self._get_confirmed_block_args(slot, encoding)
+        args = self._get_confirmed_block_args(
+            slot,
+            encoding,
+            max_support_transaction_version,
+        )
         return self._provider.make_request(*args)
 
     def get_recent_performance_samples(self, limit: Optional[int] = None) -> types.RPCResponse:
