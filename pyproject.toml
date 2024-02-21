@@ -22,38 +22,38 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.7"
-construct-typing = "^0.5.2"
-httpx = "^0.23.0"
-requests = "^2.24"
-typing-extensions = ">=3.10.0"
-cachetools = "^4.2.2"
-types-cachetools = "^4.2.4"
+python = "^3.11"
+construct-typing = "^0.6.2"
+httpx = "^0.27.0"
+requests = "^2.31"
+typing-extensions = ">=4.9.0"
+cachetools = "^5.3.2"
+types-cachetools = "^5.3.0.7"
 jsonrpcclient = "^4.0.1"
-websockets = "^10.3"
+websockets = "^12.0"
 jsonrpcserver = "^5.0.7"
-apischema = "^0.17.5"
+apischema = "^0.18.1"
 based58 = "^0.1.0"
-solders = "^0.2.0"
-
-[tool.poetry.dev-dependencies]
-black = "^22.3"
-pytest = "^7.1.2"
-pylint = "^2.11.1"
-mypy = "^0.910"
-pydocstyle = "^6.1.1"
-flake8 = "^4.0.1"
-isort = "^5.9.3"
-pytest-docker = "^0.12.0"
-bump2version = "^1.0.1"
-types-requests = "^2.25.11"
-pytest-asyncio = "^0.18.3"
-pytest-cov = "^3.0.0"
-asyncstdlib = "^3.10.2"
-mkdocstrings = "^0.18.0"
-mkdocs-material = "^8.2.1"
-
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+solders = "^0.20.0"
+#
+#[tool.poetry.dev-dependencies]
+#black = "^22.3"
+#pytest = "^7.1.2"
+#pylint = "^2.11.1"
+#mypy = "^0.910"
+#pydocstyle = "^6.1.1"
+#flake8 = "^4.0.1"
+#isort = "^5.9.3"
+#pytest-docker = "^0.12.0"
+#bump2version = "^1.0.1"
+#types-requests = "^2.25.11"
+#pytest-asyncio = "^0.18.3"
+#pytest-cov = "^3.0.0"
+#asyncstdlib = "^3.10.2"
+#mkdocstrings = "^0.18.0"
+#mkdocs-material = "^8.2.1"
+#
+#
+#[build-system]
+#requires = ["poetry-core>=1.0.0"]
+#build-backend = "poetry.core.masonry.api"

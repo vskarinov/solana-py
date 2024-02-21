@@ -280,7 +280,6 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
                    'SysvarC1ock11111111111111111111111111111111',
                    'Vote111111111111111111111111111111111111111'],
                   'header': {'numReadonlySignedAccounts': 0,
-                   'numReadonlyUnsignedAccounts': 3,
                    'numRequiredSignatures': 1},
                   'instructions': [{'accounts': [1, 2, 3, 0],
                     'data': '37u9WtQpcm6ULa3VmTgTKEBCtYMxq84mk82tRvKdFEwj3rALiptAzuMJ1yoVSFAMARMZYp7q',
