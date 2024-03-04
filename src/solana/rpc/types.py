@@ -1,4 +1,5 @@
 """RPC types."""
+
 from typing import Any, NamedTuple, NewType, Optional, Union
 
 from typing_extensions import Literal, TypedDict  # noqa: F401

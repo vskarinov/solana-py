@@ -1,4 +1,5 @@
 """This module contains code for interacting with the RPC Websocket endpoint."""
+
 from json import dumps, loads
 from typing import Any, Dict, List, Optional, Union, cast
 

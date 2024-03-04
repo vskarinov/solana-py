@@ -1,4 +1,5 @@
 """Async HTTP RPC Provider."""
+
 from typing import Any, Optional
 
 import httpx

@@ -1,8 +1,9 @@
 """HTTP RPC Provider."""
+
 from typing import Any, Optional, Union
 
-from based58 import b58encode
 import requests
+from based58 import b58encode
 
 from ...exceptions import SolanaRpcException, handle_exceptions
 from ..types import RPCMethod, RPCResponse
@@ -49,7 +50,7 @@ class HTTPProvider(BaseProvider, _HTTPProviderCore):
         if raw_response.status_code == 200:
             return self._after_request(raw_response=raw_response, method=method)
         else:
-            return raw_response
+            return self._after_request_error(raw_response=raw_response, method=method)  # raw_response
 
     def is_connected(self) -> bool:
         """Health check."""

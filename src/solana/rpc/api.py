@@ -1,8 +1,9 @@
 """API client to interact with the Solana JSON RPC Endpoint."""  # pylint: disable=too-many-lines
+
 from __future__ import annotations
 
 from time import sleep, time
-from typing import List, Optional, Union, Dict
+from typing import Dict, List, Optional, Union
 from warnings import warn
 
 from solana.blockhash import Blockhash, BlockhashCache
@@ -77,14 +78,42 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
 
     @property
     def request(self):
-        if getattr(self, '_provider'):
+        """Gets the request data.
+
+        Returns:
+            The decoded JSON request data, or None if the provider is not set.
+        """
+        if getattr(self, "_provider"):
             request_raw = self._provider.content
             return self._provider.json_decode(request_raw)
         return None
 
     @property
     def response_headers(self):
-        return self._provider.response_headers if getattr(self, '_provider') else None
+        """Gets the response headers.
+
+        Returns:
+            The response headers, or None if the provider is not set.
+        """
+        return self._provider.response_headers if getattr(self, "_provider") else None
+
+    @property
+    def response(self):
+        """Gets the response data.
+
+        Returns:
+            The response data, or None if the provider is not set.
+        """
+        return self._provider.response if getattr(self, "_provider") else None
+
+    @property
+    def all_session_responses(self):
+        """Gets all session responses.
+
+        Returns:
+            A list of all session responses, or None if the provider is not set.
+        """
+        return self._provider.all_session_responses if getattr(self, "_provider") else None
 
     def is_connected(self) -> bool:
         """Health check.
@@ -546,7 +575,12 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
              'id': 2}
         """  # noqa: E501 # pylint: disable=line-too-long
         args = self._get_signatures_for_address_args(
-            account, before, until, limit, commitment, min_context_slot,
+            account,
+            before,
+            until,
+            limit,
+            commitment,
+            min_context_slot,
         )
         return self._provider.make_request(*args)
 
@@ -833,11 +867,11 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         return self._provider.make_request(self._get_inflation_rate)
 
     def get_inflation_reward(
-            self,
-            address_list: List[Union[str, PublicKey]],
-            commitment: Optional[Commitment] = None,
-            epoch: Optional[int] = None,
-            min_context_slot: Optional[int] = None,
+        self,
+        address_list: List[Union[str, PublicKey]],
+        commitment: Optional[Commitment] = None,
+        epoch: Optional[int] = None,
+        min_context_slot: Optional[int] = None,
     ) -> types.RPCResponse:
         """Returns the inflation reward for a list of addresses for an epoch.
 
@@ -1058,7 +1092,7 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
             memcmp_opts: (optional) Options to compare a provided series of bytes with program account data at a particular offset.
             with_context: (optional ) Option to wrap the result in an RpcResponse JSON object.
             min_context_slot: (optional ) set the minimum slot that the request can be evaluated at
-        
+
         Example:
             >>> solana_client = Client("http://localhost:8899")
             >>> memcmp_opts = [
@@ -1089,7 +1123,8 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         return self._provider.make_request(*args)
 
     def get_recent_performance_samples(
-        self, limit: Optional[int] = None,
+        self,
+        limit: Optional[int] = None,
     ) -> types.RPCResponse:
         """
         Returns a list of recent performance samples, in reverse slot order.
@@ -1120,7 +1155,9 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
 
     def get_blocks_with_limit(
         self,
-        start_slot: int, limit: int, commitment: Optional[Commitment] = None,
+        start_slot: int,
+        limit: int,
+        commitment: Optional[Commitment] = None,
     ) -> types.RPCResponse:
         """
         Returns a list of confirmed blocks starting at the given slot
@@ -1160,10 +1197,11 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         args = self._get_recent_blockhash_args(commitment)
         return self._provider.make_request(*args)
 
-    def get_latest_blockhash(self,
-                             commitment: Optional[Commitment] = None,
-                             min_context_slot: Optional[int] = None,
-                             ) -> types.RPCResponse:
+    def get_latest_blockhash(
+        self,
+        commitment: Optional[Commitment] = None,
+        min_context_slot: Optional[int] = None,
+    ) -> types.RPCResponse:
         """Returns the latest block hash from the ledger.
 
         Response also includes the last valid block height.
@@ -1184,7 +1222,9 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
         return self._provider.make_request(*args)
 
     def get_fee_for_message(
-        self, message: str, commitment: Optional[Commitment] = None,
+        self,
+        message: str,
+        commitment: Optional[Commitment] = None,
     ) -> types.RPCResponse:
         """Get the fee the network will charge for a particular Message
             NEW: This method is only available in solana-core v1.9 or newer.
@@ -1298,7 +1338,10 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
             solana_client.get_block_production()
         """
         args = self._get_block_production_args(
-            commitment, first_slot, last_slot, identity,
+            commitment,
+            first_slot,
+            last_slot,
+            identity,
         )
         return self._provider.make_request(*args)
 
@@ -1395,7 +1438,10 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
             {'jsonrpc': '2.0','result': {'active': 124429280, 'inactive': 73287840, 'state': 'activating'}, 'id': 1}}
         """
         args = self._get_stake_activation_args(
-            pubkey, epoch, commitment, min_context_slot,
+            pubkey,
+            epoch,
+            commitment,
+            min_context_slot,
         )
         return self._provider.make_request(*args)
 
@@ -1739,7 +1785,10 @@ class Client(_ClientCore):  # pylint: disable=too-many-public-methods
              'id':1}
         """  # noqa: E501 # pylint: disable=line-too-long
         args = self._simulate_transaction_args(
-            txn, sig_verify, commitment, min_context_slot,
+            txn,
+            sig_verify,
+            commitment,
+            min_context_slot,
         )
         return self._provider.make_request(*args)
 

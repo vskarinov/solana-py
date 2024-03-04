@@ -1,4 +1,5 @@
 """This module contains code for parsing RPC responses."""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 

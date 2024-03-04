@@ -5,6 +5,7 @@ Example:
     >>> Blockhash("EETubP5AKHgjPAhzPAFcb8BAY1hMH639CWCFTqi3hq1k")
     'EETubP5AKHgjPAhzPAFcb8BAY1hMH639CWCFTqi3hq1k'
 """
+
 from typing import NewType
 
 from cachetools import TTLCache

@@ -1,4 +1,5 @@
 """Synthetic accounts that allow programs to access certain network states."""
+
 from solana.publickey import PublicKey
 
 SYSVAR_CLOCK_PUBKEY: PublicKey = PublicKey("SysvarC1ock11111111111111111111111111111111")

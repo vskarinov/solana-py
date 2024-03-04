@@ -1,4 +1,5 @@
 """Async API client to interact with the Solana JSON RPC Endpoint."""  # pylint: disable=too-many-lines
+
 import asyncio
 from time import time
 from typing import List, Optional, Union
@@ -68,14 +69,14 @@ class AsyncClient(_ClientCore):  # pylint: disable=too-many-public-methods
 
     @property
     def request(self):
-        if getattr(self, '_provider'):
+        if getattr(self, "_provider"):
             request_raw = self._provider.content
             return self._provider.json_decode(request_raw)
         return None
 
     @property
     def response_headers(self):
-        return self._provider.response_headers if getattr(self, '_provider') else None
+        return self._provider.response_headers if getattr(self, "_provider") else None
 
     async def close(self) -> None:
         """Use this when you are done with the client."""

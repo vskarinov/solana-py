@@ -316,9 +316,9 @@ def decode_initialize_mint(instruction: TransactionInstruction) -> InitializeMin
         program_id=instruction.program_id,
         mint=instruction.keys[0].pubkey,
         mint_authority=PublicKey(parsed_data.args.mint_authority),
-        freeze_authority=PublicKey(parsed_data.args.freeze_authority)
-        if parsed_data.args.freeze_authority_option
-        else None,
+        freeze_authority=(
+            PublicKey(parsed_data.args.freeze_authority) if parsed_data.args.freeze_authority_option else None
+        ),
     )
 
 

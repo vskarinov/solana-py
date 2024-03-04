@@ -1,4 +1,5 @@
 """Keypair module to manage public-private key pair."""
+
 from __future__ import annotations
 
 from typing import Optional

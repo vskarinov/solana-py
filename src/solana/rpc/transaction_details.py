@@ -1,4 +1,5 @@
 """Transaction options."""
+
 from typing import NewType
 
 Level = NewType("transactionDetails", str)

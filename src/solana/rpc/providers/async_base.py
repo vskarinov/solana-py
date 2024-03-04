@@ -1,4 +1,5 @@
 """Async base RPC Provider."""
+
 from typing import Any
 
 from ..types import RPCMethod, RPCResponse

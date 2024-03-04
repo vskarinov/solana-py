@@ -1,6 +1,9 @@
 """Exceptions native to solana-py."""
+
 from typing import Any, Callable
+
 from requests.exceptions import HTTPError
+
 
 class SolanaExceptionBase(Exception):
     """Base class for Solana-py exceptions."""
@@ -34,9 +37,10 @@ def handle_exceptions(internal_exception_cls, *exception_types_caught):
             try:
                 return func(*args, **kwargs)
             except HTTPError as http_err:
-                print(f'HTTP error occurred: {http_err}')
+                print(f"HTTP error occurred: {http_err}")
             except exception_types_caught as exc:
                 raise internal_exception_cls(exc, func, *args, **kwargs) from exc
+
         return argument_decorator
 
     return func_decorator

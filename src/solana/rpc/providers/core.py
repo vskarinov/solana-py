@@ -1,4 +1,5 @@
 """Helper code for HTTP provider classes."""
+
 import itertools
 import logging
 import os
@@ -6,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import httpx
 import requests
+from requests import HTTPError
 
 from .._utils.encoding import FriendlyJsonSerde
 from ..types import URI, RPCMethod, RPCResponse
@@ -27,6 +29,7 @@ class _HTTPProviderCore(FriendlyJsonSerde):
         self.endpoint_uri = get_default_endpoint() if not endpoint else URI(endpoint)
         self.health_uri = URI(f"{self.endpoint_uri}/health")
         self.timeout = timeout
+        self.responses = []
 
     def _build_request_kwargs(
         self, request_id: int, method: RPCMethod, params: Tuple[Any, ...], is_async: bool
@@ -54,7 +57,24 @@ class _HTTPProviderCore(FriendlyJsonSerde):
         if raw_response.status_code not in [406]:
             raw_response.raise_for_status()
         self.response_headers = dict(raw_response.headers)
+        self.response = cast(RPCResponse, self.json_decode(raw_response.text))
+        self.responses.append(self.response)
+        self.all_session_responses = self.responses
         self.logger.debug(
             "Getting response HTTP. URI: %s, " "Method: %s, Response: %s", self.endpoint_uri, method, raw_response.text
         )
-        return cast(RPCResponse, self.json_decode(raw_response.text))
+        return self.response
+
+    def _after_request_error(
+        self, raw_response: Union[requests.Response, httpx.Response], method: RPCMethod
+    ) -> RPCResponse:
+        # if raw_response.status_code not in [406]:
+        #     raw_response.raise_for_status()
+        self.response_headers = dict(raw_response.headers)
+        self.response = cast(RPCResponse, self.json_decode(raw_response.text))
+        self.responses.append(self.response)
+        self.all_session_responses = self.responses
+        self.logger.debug(
+            "Getting response HTTP. URI: %s, " "Method: %s, Response: %s", self.endpoint_uri, method, raw_response.text
+        )
+        return self.response

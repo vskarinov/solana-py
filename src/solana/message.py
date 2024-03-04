@@ -1,4 +1,5 @@
 """Library for generating a message from a sequence of instructions."""
+
 from __future__ import annotations
 
 from typing import List, NamedTuple

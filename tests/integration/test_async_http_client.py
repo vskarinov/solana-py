@@ -1,4 +1,5 @@
 """Tests for the HTTP API Client."""
+
 import pytest
 
 import solana.system_program as sp

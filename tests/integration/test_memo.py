@@ -1,4 +1,5 @@
 """Tests for the Memo program."""
+
 import pytest
 
 from solana.keypair import Keypair

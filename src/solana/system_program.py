@@ -1,4 +1,5 @@
 """Library to interface with the system program."""
+
 from __future__ import annotations
 
 from typing import NamedTuple, Union
