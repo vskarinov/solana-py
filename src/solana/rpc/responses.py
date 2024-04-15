@@ -44,6 +44,7 @@ class AccountInfo:
     data: Union[Literal[""], Tuple[str, str], Dict[str, Any]]
     executable: bool
     rent_epoch: int = field(metadata=alias("rentEpoch"))
+    space: int
 
 
 @dataclass
@@ -103,6 +104,7 @@ class ProgramAccountAndContext(WithContext):
     """Program subscription data with RPC result context."""
 
     value: ProgramAccount
+    context: Context #Optional[AccountInfoAndContext]
 
 
 @dataclass
